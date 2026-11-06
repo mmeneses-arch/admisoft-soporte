@@ -144,6 +144,7 @@
     l.push('*SOLICITUD DE SOPORTE*');
     l.push('*Cliente:* ' + limpiar(d.nombre));
     l.push('*Ruta:* ' + limpiar(d.ruta));
+    if (d.pc || d.version) { l.push('*Equipo:* ' + [limpiar(d.pc), d.version ? 'AdmiSoft ' + limpiar(d.version) : ''].filter(Boolean).join(' · ')); }
     if (d.esReporte) {
       var r = 'Del ' + fecha(d.desde) + ' al ' + fecha(d.hasta);
       if (limpiar(d.filtros)) { r += ' · Filtros: ' + limpiar(d.filtros); }
@@ -159,7 +160,8 @@
   function leer() {
     return { nombre: $('nombre').value, ruta: $('ruta').value, esReporte: $('esReporte').checked,
              desde: $('desde').value, hasta: $('hasta').value, filtros: $('filtros').value,
-             desc: $('desc').value, captura: $('captura').checked };
+             desc: $('desc').value, captura: $('captura').checked,
+             pc: (window.__params || {}).pc || '', version: (window.__params || {}).version || '' };
   }
 
   function validar(d) {
@@ -347,6 +349,28 @@
   });
 
   try { var n = localStorage.getItem('admisoft_nombre'); if (n) { $('nombre').value = n; } } catch (e) {}
+
+  // Datos que AdmiSoft puede enviar en el enlace: #empresa=...&usuario=...&ruta=...
+  // Se usa el fragmento (#) y no la consulta (?) para que esos datos no viajen al servidor.
+  function dec(s) {   // acepta UTF-8 (%C3%B3) y también ANSI de Windows (%F3), que es lo que genera AdmiSoft
+    try { return decodeURIComponent(s); } catch (e) { try { return unescape(s); } catch (e2) { return s; } }
+  }
+  function leerParametros() {
+    var o = {};
+    var s = String(location.hash || '').replace(/^#/, '') + '&' + String(location.search || '').replace(/^\?/, '');
+    s.split('&').forEach(function (p) {
+      if (!p) { return; }
+      var i = p.indexOf('=');
+      var k = dec(p.slice(0, i < 0 ? p.length : i).replace(/\+/g, ' '));
+      var v = i < 0 ? '' : dec(p.slice(i + 1).replace(/\+/g, ' '));
+      if (k && !(k in o)) { o[k] = v; }
+    });
+    return o;
+  }
+  var P = leerParametros();
+  if (P.empresa || P.usuario) { $('nombre').value = [P.usuario, P.empresa].filter(Boolean).join(', '); }
+  if (P.ruta) { $('ruta').value = P.ruta; }
+  window.__params = P;
   window.__armarMensaje = armarMensaje;   // para pruebas
   window.__img = { agregar: agregarArchivos, combinar: combinar, lista: imgs };
 })();
