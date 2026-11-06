@@ -40,6 +40,8 @@
   #pasos.visible { display: block; }
   #pasos h2 { margin: 0 0 .4rem; font-size: 1.05rem; color: var(--ok); }
   #pasos ol { margin: .3rem 0 0; padding-left: 1.3rem; }
+  .aviso-pc { display: none; margin: 1rem 0 0; padding: .7rem .9rem; background: #fff8e1; border: 1px solid #f0d58a; border-radius: 8px; font-size: .9rem; }
+  .aviso-pc.visible { display: block; }
   .nota { margin-top: 1.4rem; font-size: .86rem; color: #5a6275; }
   footer { text-align: center; color: #5a6275; font-size: .85rem; margin-top: 1.2rem; }
   @media (max-width: 440px) { .fila { flex-direction: column; gap: 0; } }
@@ -87,13 +89,15 @@
     <div class="botones">
       <button type="submit" class="principal" id="enviar">Enviar por WhatsApp</button>
       <button type="button" class="secundario" id="copiar">Copiar mensaje</button>
+      <button type="button" class="secundario" id="correo">Enviar por correo</button>
     </div>
+    <p class="aviso-pc" id="avisoPC">Si usa un computador y WhatsApp le pide «Escanea para iniciar sesión» o «Crea una cuenta», ese equipo no tiene su WhatsApp vinculado. En ese caso pulse <strong>«Copiar mensaje»</strong> y péguelo en su chat de AdmiSoft desde su teléfono o desde su WhatsApp instalado, o use <strong>«Enviar por correo»</strong>.</p>
   </form>
 
   <div id="pasos" role="status" aria-live="polite">
     <h2 id="pasosTitulo">Su mensaje está listo</h2>
     <ol>
-      <li>Se abrirá WhatsApp con el mensaje ya escrito (si no se abre, use «Copiar mensaje» y péguelo en el chat).</li>
+      <li>Se abrirá WhatsApp con el mensaje ya escrito. Si en un computador le pide iniciar sesión o vincular su cuenta, cierre esa ventana y use «Copiar mensaje» para pegarlo en su chat desde su teléfono, o «Enviar por correo».</li>
       <li><strong>Pegue o adjunte la captura de pantalla</strong> en la misma conversación.</li>
       <li>Envíelo. Le confirmaremos la recepción y el nivel de urgencia asignado.</li>
     </ol>
@@ -185,6 +189,27 @@
     } else {
       window.prompt('Copie este mensaje:', texto); listo();
     }
+  });
+
+  var CORREO = 'admisoft@gmail.com';
+  var esMovil = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+  if (!esMovil) { $('avisoPC').classList.add('visible'); }
+
+  $('correo').addEventListener('click', function () {
+    var d = leer();
+    if (!validar(d)) { return; }
+    var asunto = 'Solicitud de soporte - ' + limpiar(d.nombre);
+    var cuerpo = armarMensaje(d).replace(/\*/g, '').replace(/_/g, '');   // sin marcas de WhatsApp
+    var url;
+    if (esMovil) {
+      url = 'mailto:' + CORREO + '?subject=' + encodeURIComponent(asunto) + '&body=' + encodeURIComponent(cuerpo);
+      window.location.href = url;
+    } else {
+      url = 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(CORREO) +
+            '&su=' + encodeURIComponent(asunto) + '&body=' + encodeURIComponent(cuerpo);
+      window.open(url, '_blank', 'noopener');
+    }
+    mostrarPasos('Correo preparado: adjunte la captura de pantalla antes de enviarlo');
   });
 
   try { var n = localStorage.getItem('admisoft_nombre'); if (n) { $('nombre').value = n; } } catch (e) {}
