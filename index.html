@@ -40,6 +40,14 @@
   #pasos.visible { display: block; }
   #pasos h2 { margin: 0 0 .4rem; font-size: 1.05rem; color: var(--ok); }
   #pasos ol { margin: .3rem 0 0; padding-left: 1.3rem; }
+  .zona { border: 2px dashed var(--azul2); background: #f6f9ff; border-radius: 8px; padding: 1.1rem .9rem; text-align: center; cursor: pointer; font-size: .95rem; }
+  .zona:focus, .zona.sobre { outline: 3px solid var(--azul2); background: #e8f0ff; }
+  .enlace { background: none; border: 0; padding: 0; font: inherit; color: var(--azul2); text-decoration: underline; cursor: pointer; font-weight: 600; }
+  .miniaturas { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .6rem; }
+  .mini { position: relative; width: 104px; border: 1px solid var(--borde); border-radius: 6px; background: #fff; padding: 4px; text-align: center; }
+  .mini img { display: block; width: 100%; height: 72px; object-fit: cover; border-radius: 4px; }
+  .mini span { display: block; font-size: .75rem; color: #5a6275; margin: 2px 0; }
+  .mini button { font-size: .75rem; font-weight: 600; padding: .15rem .4rem; border: 1px solid var(--err); color: var(--err); background: #fff; border-radius: 4px; cursor: pointer; }
   .aviso-pc { display: none; margin: 1rem 0 0; padding: .7rem .9rem; background: #fff8e1; border: 1px solid #f0d58a; border-radius: 8px; font-size: .9rem; }
   .aviso-pc.visible { display: block; }
   .nota { margin-top: 1.4rem; font-size: .86rem; color: #5a6275; }
@@ -81,10 +89,19 @@
     <textarea id="desc" required></textarea>
     <div class="error" id="e_desc">Describa qué ocurre y qué esperaba.</div>
 
-    <label class="check" for="captura"><input type="checkbox" id="captura" required>
-      <span>Voy a pegar o adjuntar la captura de pantalla completa en el chat</span></label>
-    <div class="ayuda" style="margin:.25rem 0 0 1.7rem">Use la tecla Impr Pant o la herramienta de recortes. Debe verse toda la ventana, no una foto del monitor.</div>
-    <div class="error" id="e_captura">Confirme que adjuntará la captura.</div>
+    <label for="zona">Capturas de pantalla
+      <span class="ayuda">Use la tecla Impr Pant o la herramienta de recortes. Debe verse toda la ventana, no una foto del monitor. Puede pegar <strong>varias</strong> (máximo 6).</span></label>
+    <div id="zona" class="zona" tabindex="0" role="button" aria-label="Zona para pegar capturas de pantalla">
+      <strong>Haga clic aquí y pegue sus capturas con Ctrl+V</strong>, una tras otra<br>
+      o arrástrelas, o <button type="button" class="enlace" id="elegir">elíjalas desde su equipo o teléfono</button>
+      <input type="file" id="archivos" accept="image/*" multiple hidden>
+    </div>
+    <div id="miniaturas" class="miniaturas" aria-live="polite"></div>
+    <div class="ayuda" id="contador" style="display:none"></div>
+
+    <label class="check" for="captura"><input type="checkbox" id="captura">
+      <span>Si no puede pegarlas aquí: voy a adjuntar la captura de pantalla completa en el chat</span></label>
+    <div class="error" id="e_captura">Agregue al menos una captura de pantalla o confirme que la adjuntará.</div>
 
     <div class="botones">
       <button type="submit" class="principal" id="enviar">Enviar por WhatsApp</button>
@@ -101,6 +118,7 @@
       <li><strong>Pegue o adjunte la captura de pantalla</strong> en la misma conversación.</li>
       <li>Envíelo. Le confirmaremos la recepción y el nivel de urgencia asignado.</li>
     </ol>
+    <p style="margin:.6rem 0 0;font-size:.9rem">Si WhatsApp no se abrió, <a id="abrirWA" href="#" target="_blank" rel="noopener">pulse aquí</a>.</p>
   </div>
 
   <p class="nota">Esta página no guarda ni envía información por sí sola: solo prepara el mensaje que usted mismo envía por WhatsApp. No incluya datos de pacientes que no sean necesarios.</p>
@@ -111,6 +129,8 @@
 <script>
 (function () {
   var WHATSAPP = '573186882858';   // +57 318 688 2858
+  var MAX_IMG = 6;
+  var imgs = [];                   // capturas: { blob, url, w, h }
 
   function $(id) { return document.getElementById(id); }
   function limpiar(t) { return String(t || '').replace(/\s+\n/g, '\n').replace(/[ \t]+/g, ' ').trim(); }
@@ -149,7 +169,7 @@
     marca('e_ruta', !limpiar(d.ruta));
     marca('e_fechas', d.esReporte && (!d.desde || !d.hasta || d.desde > d.hasta));
     marca('e_desc', !limpiar(d.desc));
-    marca('e_captura', !d.captura);
+    marca('e_captura', !d.captura && imgs.length === 0);
     if (!ok) {
       var primero = document.querySelector('.error.visible');
       if (primero && primero.previousElementSibling && primero.previousElementSibling.scrollIntoView) {
@@ -169,14 +189,129 @@
     $('bloqueReporte').classList.toggle('visible', this.checked);
   });
 
+  // ---------- Capturas de pantalla (se procesan en su equipo; no se suben a ningún servidor) ----------
+  function cargarImagen(url) {
+    return new Promise(function (ok, fallo) { var i = new Image(); i.onload = function () { ok(i); }; i.onerror = fallo; i.src = url; });
+  }
+
+  function dibujarMiniaturas() {
+    var cont = $('miniaturas'); cont.textContent = '';
+    imgs.forEach(function (im, n) {
+      var caja = document.createElement('div'); caja.className = 'mini';
+      var pic = document.createElement('img'); pic.src = im.url; pic.alt = 'Captura ' + (n + 1);
+      var rot = document.createElement('span'); rot.textContent = 'Captura ' + (n + 1);
+      var q = document.createElement('button'); q.type = 'button'; q.textContent = 'Quitar';
+      q.addEventListener('click', function () { URL.revokeObjectURL(im.url); imgs.splice(n, 1); dibujarMiniaturas(); });
+      caja.appendChild(pic); caja.appendChild(rot); caja.appendChild(q); cont.appendChild(caja);
+    });
+    var c = $('contador');
+    c.style.display = imgs.length ? 'block' : 'none';
+    c.textContent = imgs.length + ' de ' + MAX_IMG + ' capturas agregadas.';
+    if (imgs.length) { $('e_captura').classList.remove('visible'); }
+  }
+
+  function agregarArchivos(lista) {
+    var nuevos = Array.prototype.filter.call(lista || [], function (f) { return f && /^image\//.test(f.type); });
+    nuevos.forEach(function (f) {
+      if (imgs.length >= MAX_IMG) { return; }
+      imgs.push({ blob: f, url: URL.createObjectURL(f) });
+    });
+    dibujarMiniaturas();
+  }
+
+  // Une todas las capturas en una sola imagen (una debajo de otra) para pegarla de una vez en el chat o el correo.
+  function combinar() {
+    var ANCHO = 1200, ETIQ = 26, GAP = 10;
+    return Promise.all(imgs.map(function (im) { return cargarImagen(im.url); })).then(function (lista) {
+      var total = lista.length, et = total > 1 ? ETIQ : 0;
+      var esc = lista.map(function (i) { return Math.min(1, ANCHO / i.naturalWidth); });
+      var altos = lista.map(function (i, n) { return Math.round(i.naturalHeight * esc[n]); });
+      var W = 0, H = 0;
+      lista.forEach(function (i, n) { W = Math.max(W, Math.round(i.naturalWidth * esc[n])); H += altos[n] + et + (n < total - 1 ? GAP : 0); });
+      var cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+      var g = cv.getContext('2d'); g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
+      var y = 0;
+      lista.forEach(function (i, n) {
+        if (et) {
+          g.fillStyle = '#1f3864'; g.fillRect(0, y, W, et - 4);
+          g.fillStyle = '#ffffff'; g.font = 'bold 15px Calibri, Arial, sans-serif';
+          g.fillText('Captura ' + (n + 1) + ' de ' + total, 8, y + 17);
+          y += et;
+        }
+        g.drawImage(i, 0, y, Math.round(i.naturalWidth * esc[n]), altos[n]);
+        y += altos[n] + GAP;
+      });
+      return new Promise(function (ok, fallo) { cv.toBlob(function (b) { if (b) { ok(b); } else { fallo(new Error('toBlob')); } }, 'image/png'); });
+    });
+  }
+
+  function descargar(blob) {
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'capturas-solicitud.png';
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  // Devuelve 'ninguna' | 'copiado' | 'descargado' | 'error'
+  function copiarImagenes() {
+    if (!imgs.length) { return Promise.resolve('ninguna'); }
+    var intento;
+    if (navigator.clipboard && window.ClipboardItem) {
+      try { intento = navigator.clipboard.write([new ClipboardItem({ 'image/png': combinar() })]).then(function () { return 'copiado'; }); }
+      catch (e) { intento = Promise.reject(e); }
+    } else { intento = Promise.reject(new Error('sin portapapeles')); }
+    return intento.catch(function () {
+      return combinar().then(function (b) { descargar(b); return 'descargado'; }, function () { return 'error'; });
+    });
+  }
+
+  function textoCapturas(r, medio) {
+    if (r === 'copiado') { return 'Capturas copiadas: ' + (medio === 'wa' ? 'en el chat de WhatsApp pulse Ctrl+V para pegarlas' : 'péguelas con Ctrl+V en el cuerpo del mensaje'); }
+    if (r === 'descargado') { return 'Capturas descargadas como «capturas-solicitud.png»: adjúntelas ' + (medio === 'wa' ? 'en el chat de WhatsApp' : 'al correo'); }
+    if (r === 'error') { return 'No se pudieron preparar las capturas: adjúntelas manualmente'; }
+    return medio === 'wa' ? 'Su mensaje está listo: pegue la captura en WhatsApp' : 'Correo preparado: adjunte la captura antes de enviarlo';
+  }
+
+  $('zona').addEventListener('click', function () { this.focus(); });
+  $('elegir').addEventListener('click', function (ev) { ev.stopPropagation(); $('archivos').click(); });
+  $('archivos').addEventListener('change', function () { agregarArchivos(this.files); this.value = ''; });
+  ['dragover', 'dragenter'].forEach(function (n) { $('zona').addEventListener(n, function (ev) { ev.preventDefault(); this.classList.add('sobre'); }); });
+  ['dragleave', 'drop'].forEach(function (n) { $('zona').addEventListener(n, function () { this.classList.remove('sobre'); }); });
+  $('zona').addEventListener('drop', function (ev) { ev.preventDefault(); agregarArchivos(ev.dataTransfer && ev.dataTransfer.files); });
+  document.addEventListener('paste', function (ev) {
+    var items = ev.clipboardData && ev.clipboardData.items; if (!items) { return; }
+    var archivos = [];
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].kind === 'file' && /^image\//.test(items[i].type)) { var f = items[i].getAsFile(); if (f) { archivos.push(f); } }
+    }
+    if (archivos.length) { ev.preventDefault(); agregarArchivos(archivos); }
+  });
+
+  function abrirVentana(url) {
+    var w = null; try { w = window.open(url, '_blank', 'noopener'); } catch (e) {}
+    return w;
+  }
+
+  function copiarYAbrir(url) {
+    copiarImagenes().then(function (r) { mostrarPasos(textoCapturas(r, 'wa')); abrirVentana(url); });
+  }
+
   $('f').addEventListener('submit', function (ev) {
     ev.preventDefault();
     var d = leer();
     if (!validar(d)) { return; }
     try { localStorage.setItem('admisoft_nombre', d.nombre); } catch (e) {}
-    var url = 'https://wa.me/' + WHATSAPP + '?text=' + encodeURIComponent(armarMensaje(d));
-    mostrarPasos('Su mensaje está listo: pegue la captura en WhatsApp');
-    window.open(url, '_blank', 'noopener');
+    var texto = armarMensaje(d);
+    var url = 'https://wa.me/' + WHATSAPP + '?text=' + encodeURIComponent(texto);
+    $('abrirWA').href = url;
+    if (!imgs.length) { mostrarPasos(textoCapturas('ninguna', 'wa')); abrirVentana(url); return; }
+    // Celular con varias imágenes: compartir directo (texto + capturas) con la hoja de compartir del teléfono
+    var archivos = imgs.map(function (im, n) { return new File([im.blob], 'captura' + (n + 1) + '.png', { type: im.blob.type || 'image/png' }); });
+    if (esMovil && navigator.share && navigator.canShare && navigator.canShare({ files: archivos })) {
+      navigator.share({ files: archivos, text: texto }).then(
+        function () { mostrarPasos('Compartido: elija el chat de AdmiSoft en WhatsApp para enviarlo'); },
+        function (err) { if (!err || err.name !== 'AbortError') { copiarYAbrir(url); } });
+      return;
+    }
+    copiarYAbrir(url);
   });
 
   $('copiar').addEventListener('click', function () {
@@ -200,20 +335,20 @@
     if (!validar(d)) { return; }
     var asunto = 'Solicitud de soporte - ' + limpiar(d.nombre);
     var cuerpo = armarMensaje(d).replace(/\*/g, '').replace(/_/g, '');   // sin marcas de WhatsApp
-    var url;
-    if (esMovil) {
-      url = 'mailto:' + CORREO + '?subject=' + encodeURIComponent(asunto) + '&body=' + encodeURIComponent(cuerpo);
-      window.location.href = url;
-    } else {
-      url = 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(CORREO) +
-            '&su=' + encodeURIComponent(asunto) + '&body=' + encodeURIComponent(cuerpo);
-      window.open(url, '_blank', 'noopener');
-    }
-    mostrarPasos('Correo preparado: adjunte la captura de pantalla antes de enviarlo');
+    copiarImagenes().then(function (r) {
+      if (esMovil) {
+        window.location.href = 'mailto:' + CORREO + '?subject=' + encodeURIComponent(asunto) + '&body=' + encodeURIComponent(cuerpo);
+      } else {
+        abrirVentana('https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(CORREO) +
+                     '&su=' + encodeURIComponent(asunto) + '&body=' + encodeURIComponent(cuerpo));
+      }
+      mostrarPasos(textoCapturas(r, 'correo'));
+    });
   });
 
   try { var n = localStorage.getItem('admisoft_nombre'); if (n) { $('nombre').value = n; } } catch (e) {}
   window.__armarMensaje = armarMensaje;   // para pruebas
+  window.__img = { agregar: agregarArchivos, combinar: combinar, lista: imgs };
 })();
 </script>
 </body>
